@@ -8,6 +8,9 @@ HOST = '192.168.100.222'
 PORT = 8080
 
 client = None
+esc_press_time = 0
+esc_press_count = 0
+esc_timeout = 1  # 1 秒内连续按两次 ESC 才退出
 
 def connect():
     global client
@@ -87,11 +90,20 @@ def on_press(key):
             send_to_rp2040('>')
 
 def on_release(key):
+    global esc_press_time, esc_press_count
     if key == keyboard.Key.esc:
-        if client:
-            client.close()
-        print("👋 已退出。")
-        return False
+        now = time.time()
+        if now - esc_press_time <= esc_timeout:
+            esc_press_count += 1
+        else:
+            esc_press_count = 1  # reset if too slow
+        esc_press_time = now
+
+        if esc_press_count >= 2:
+            if client:
+                client.close()
+            print("👋 连按两次 ESC，已退出。")
+            return False
 
 # 主流程
 connect()
