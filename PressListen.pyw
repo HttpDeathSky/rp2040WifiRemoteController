@@ -1,8 +1,14 @@
 import socket
 import time
 import threading
+import os
+import sys
+import psutil
 from pynput import keyboard
 from pynput import mouse
+from pystray import Icon, MenuItem, Menu
+from PIL import Image, ImageDraw
+
 
 HOST = '192.168.100.222'
 PORT = 8080
@@ -10,20 +16,30 @@ PORT = 8080
 client = None
 esc_press_time = 0
 esc_press_count = 0
-esc_timeout = 1  # 1 秒内连续按两次 ESC 才退出
+esc_timeout = 1
+
+def singleCheck():
+    for proc in psutil.process_iter(['pid', 'cmdline']):
+        try:
+            if proc.info['pid'] == os.getpid():
+                continue
+            if proc.info['cmdline'] and proc.info['cmdline'] == psutil.Process(os.getpid()).cmdline():
+                os._exit(0)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
 
 def connect():
     global client
     while True:
         try:
-            print(f"🔄 尝试连接 {HOST}:{PORT}...")
+            print(f"Connect to RP2040: {HOST}:{PORT}...")
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.settimeout(1)
             client.connect((HOST, PORT))
-            print("✅ 已连接到 RP2040")
+            print("Connection Created")
             return
         except Exception as e:
-            print(f"[连接失败] {e}，3 秒后重试...")
+            print(f"Lost Connection {e}，retry in 3s ...")
             time.sleep(3)
 
 def receive_from_rp2040():
@@ -32,9 +48,8 @@ def receive_from_rp2040():
         try:
             data = client.recv(1024)
             if data:
-                print(f"📥 来自 RP2040: {data.decode().strip()}")
+                print(f"RP2040: {data.decode().strip()}")
         except Exception as e:
-            print(f"[接收出错] {e}")
             break
 
 def send_to_rp2040(data):
@@ -42,20 +57,19 @@ def send_to_rp2040(data):
     try:
         client.sendall(data.encode())
     except Exception as e:
-        print(f"[ERROR] {e}")
-        print("⚠️ 尝试重新连接...")
+        print(f"Connection ERROR: {e}")
         client.close()
         connect()
+        print("Reconnection...")
         try:
             client.sendall(data.encode())
         except Exception as e:
-            print(f"[重试失败] {e}")
+            print(f"Reconnection fail: {e}")
 
 def on_click(x, y, button, pressed):
     if pressed and button == mouse.Button.left:
-        print(f"🖱️ 鼠标左键点击 at ({x}, {y})")
+        print(f"left click:({x}, {y})")
         send_to_rp2040("*")
-
 
 def on_press(key):
     try:
@@ -96,23 +110,48 @@ def on_release(key):
         if now - esc_press_time <= esc_timeout:
             esc_press_count += 1
         else:
-            esc_press_count = 1  # reset if too slow
+            esc_press_count = 1
         esc_press_time = now
 
         if esc_press_count >= 2:
             if client:
                 client.close()
-            print("👋 连按两次 ESC，已退出。")
-            return False
+            print("Double Press ESC Exit !")
+            os._exit(0)
 
-# 主流程
-connect()
-# 启动接收线程
-threading.Thread(target=receive_from_rp2040, daemon=True).start()
+def htpsIcon():
+    img = Image.new('RGB', (64, 64), color='black')
+    d = ImageDraw.Draw(img)
+    d.rectangle([16, 16, 48, 48], fill='white')
+    return img
 
-# 启动鼠标监听
-mouse.Listener(on_click=on_click).start()
+def shutDown(icon=None, item=None):
+    if client:
+        client.close()
+    icon.stop()
+    os._exit(0)
+    
+def reconnect(icon=None, item=None):
+    global client
+    try:
+        if client:
+            client.close()
+    except:
+        pass
+    connect()
 
-print("🎹 正在监听键盘（仅字母和数字），按 ESC 退出。")
-with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
-    listener.join()
+if __name__ == '__main__':
+    singleCheck()
+    connect()
+    threading.Thread(target=receive_from_rp2040, daemon=False).start()
+    mouse.Listener(on_click=on_click).start()
+    keyboard.Listener(on_press=on_press, on_release=on_release).start()
+    icon = Icon(
+        "RP2040",
+        htpsIcon(),
+        menu=Menu(
+            MenuItem('Reconnect', reconnect),
+            MenuItem('Exit', shutDown)
+        )
+    )
+    icon.run()
