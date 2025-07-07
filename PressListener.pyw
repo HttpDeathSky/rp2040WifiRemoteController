@@ -2,17 +2,13 @@ import socket
 import time
 import threading
 import os
-import sys
 import psutil
-from pynput import keyboard
-from pynput import mouse
+from pynput import keyboard, mouse
 from pystray import Icon, MenuItem, Menu
 from PIL import Image, ImageDraw
 
-
 HOST = '192.168.100.222'
 PORT = 8080
-
 client = None
 esc_press_time = 0
 esc_press_count = 0
@@ -54,6 +50,8 @@ def receive_from_rp2040():
 
 def send_to_rp2040(data):
     global client
+    if not client:
+        return
     try:
         client.sendall(data.encode())
     except Exception as e:
@@ -140,6 +138,15 @@ def reconnect(icon=None, item=None):
         pass
     connect()
 
+def disconnect(icon=None, item=None):
+    global client
+    if client:
+        try:
+            client.close()
+        except Exception as e:
+            pass
+        client = None
+
 if __name__ == '__main__':
     singleCheck()
     connect()
@@ -151,6 +158,7 @@ if __name__ == '__main__':
         htpsIcon(),
         menu=Menu(
             MenuItem('Reconnect', reconnect),
+            MenuItem('Disconnect', disconnect),
             MenuItem('Exit', shutDown)
         )
     )
